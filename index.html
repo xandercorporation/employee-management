@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Xander EMS v2.1</title>
+<title>Xander EMS v2.2</title>
 
 <style>
-:root {
+:root{
   --bg:#0b1220;
   --panel:#111a2e;
   --accent:#3b82f6;
@@ -14,54 +14,41 @@
   --text:#e5e7eb;
 }
 
-body {
+body{
   margin:0;
   font-family:system-ui;
   background:var(--bg);
   color:var(--text);
 }
 
-header {
+header{
   display:flex;
   justify-content:space-between;
-  align-items:center;
   padding:14px;
   background:var(--panel);
 }
 
-.container {
-  max-width:1100px;
-  margin:auto;
-  padding:16px;
-}
+.container{max-width:1100px;margin:auto;padding:16px;}
 
-.panel {
+.panel{
   background:var(--panel);
   padding:12px;
   border-radius:10px;
   margin-bottom:10px;
 }
 
-.grid {
-  display:grid;
-  gap:10px;
-}
-
-@media(min-width:900px){
-  .grid{grid-template-columns:repeat(2,1fr);}
-}
-
-input,textarea {
+input,textarea{
   width:100%;
   padding:10px;
   border-radius:8px;
   border:1px solid #334155;
   background:#0f172a;
   color:white;
+  margin-top:6px;
 }
 
-button {
-  padding:10px 12px;
+button{
+  padding:10px;
   border:none;
   border-radius:8px;
   cursor:pointer;
@@ -69,47 +56,55 @@ button {
   color:white;
 }
 
-button.danger {background:var(--danger);}
-.hidden {display:none;}
-.row {display:flex; gap:10px; flex-wrap:wrap;}
-.small {font-size:12px; opacity:0.8;}
+button.danger{background:var(--danger);}
+
+.hidden{display:none;}
+
+.row{display:flex;gap:10px;flex-wrap:wrap;}
+
+#toast{
+  position:fixed;
+  bottom:20px;
+  left:50%;
+  transform:translateX(-50%);
+  background:#1e293b;
+  padding:10px 16px;
+  border-radius:8px;
+  display:none;
+}
 </style>
 </head>
 
 <body>
 
 <header>
-  <b>Xander EMS v2.1</b>
-  <button id="authBtn">Login</button>
+  <b>Xander EMS v2.2</b>
+  <button id="logoutBtn">Logout</button>
 </header>
 
 <div class="container">
 
-  <!-- LOGIN UI -->
-  <div id="loginUI" class="panel">
+  <!-- LOGIN -->
+  <div id="loginBox" class="panel">
     <h2>Admin Login</h2>
-    <input id="loginEmail" placeholder="Email"/>
-    <input id="loginPassword" type="password" placeholder="Password"/>
+    <input id="email" placeholder="Email"/>
+    <input id="password" type="password" placeholder="Password"/>
     <button onclick="login()">Login</button>
   </div>
 
   <!-- DASHBOARD -->
-  <div id="dashboard" class="hidden">
+  <div id="app" class="hidden">
 
     <div class="panel">
       <h3>Create Employee</h3>
+      <input id="name" placeholder="Name"/>
+      <input id="empEmail" placeholder="Email"/>
+      <input id="phone" placeholder="Phone"/>
+      <input id="address" placeholder="Address"/>
+      <input id="salary" placeholder="Salary"/>
+      <textarea id="notes" placeholder="Notes"></textarea>
 
-      <div class="grid">
-        <input id="name" placeholder="Name"/>
-        <input id="email" placeholder="Email"/>
-        <input id="phone" placeholder="Phone"/>
-        <input id="address" placeholder="Address"/>
-        <input id="salary" placeholder="Salary"/>
-      </div>
-
-      <textarea id="notes" placeholder="Notes / warnings"></textarea>
-
-      <button onclick="addEmployee()">Add Employee</button>
+      <button onclick="addEmployee()">Add</button>
     </div>
 
     <div class="panel">
@@ -121,13 +116,10 @@ button.danger {background:var(--danger);}
       <div id="employees"></div>
     </div>
 
-    <div class="panel">
-      <h3>Audit Logs</h3>
-      <div id="logs"></div>
-    </div>
-
   </div>
 </div>
+
+<div id="toast"></div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -146,7 +138,6 @@ import {
   doc,
   onSnapshot,
   query,
-  orderBy,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -163,137 +154,79 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const adminUID = "REPLACE_WITH_YOUR_UID";
+const ADMIN_UID = "REPLACE_WITH_YOUR_UID";
 
 let employees = [];
-let inactivityTimer;
 
-const loginUI = document.getElementById("loginUI");
-const dashboard = document.getElementById("dashboard");
-const authBtn = document.getElementById("authBtn");
+const loginBox = document.getElementById("loginBox");
+const appBox = document.getElementById("app");
 
-authBtn.onclick = async () => {
-  if (auth.currentUser) {
-    await signOut(auth);
-  }
+const toast = (msg) => {
+  const t = document.getElementById("toast");
+  t.innerText = msg;
+  t.style.display = "block";
+  setTimeout(()=>t.style.display="none",2000);
 };
 
-window.login = async function () {
+window.login = async () => {
   try {
     await signInWithEmailAndPassword(
       auth,
-      loginEmail.value,
-      loginPassword.value
+      email.value,
+      password.value
     );
   } catch (e) {
-    alert("Login failed");
+    toast("Login failed");
   }
 };
 
-// AUTH STATE
-onAuthStateChanged(auth, (user) => {
-  if (user && user.uid === adminUID) {
-    loginUI.classList.add("hidden");
-    dashboard.classList.remove("hidden");
-    authBtn.innerText = "Logout";
+document.getElementById("logoutBtn").onclick = () => signOut(auth);
 
-    startListeners();
-    resetInactivity();
+// AUTH STATE (FIXED + CLEAN)
+onAuthStateChanged(auth, (user) => {
+  if (user && user.uid === ADMIN_UID) {
+    loginBox.classList.add("hidden");
+    appBox.classList.remove("hidden");
+    toast("Logged in");
+    listen();
   } else {
-    loginUI.classList.remove("hidden");
-    dashboard.classList.add("hidden");
-    authBtn.innerText = "Login";
+    appBox.classList.add("hidden");
+    loginBox.classList.remove("hidden");
   }
 });
 
-// INACTIVITY LOGOUT (10 min)
-function resetInactivity() {
-  clearTimeout(inactivityTimer);
-  inactivityTimer = setTimeout(() => {
-    signOut(auth);
-    alert("Logged out due to inactivity");
-  }, 600000);
-}
-
-document.addEventListener("mousemove", resetInactivity);
-document.addEventListener("keydown", resetInactivity);
-
-// FIRESTORE LOGGING
-function log(action, details) {
-  addDoc(collection(db,"employee_history"), {
-    action,
-    details,
-    by: auth.currentUser.email,
-    timestamp: serverTimestamp()
+// FIRESTORE
+function listen(){
+  onSnapshot(query(collection(db,"employees")), snap=>{
+    employees = snap.docs.map(d=>({id:d.id,...d.data()}));
+    render();
   });
 }
 
-// EMPLOYEES
-window.addEmployee = async function () {
-  await addDoc(collection(db,"employees"), {
+window.addEmployee = async () => {
+  await addDoc(collection(db,"employees"),{
     name:name.value,
-    email:email.value,
+    email:empEmail.value,
     phone:phone.value,
     address:address.value,
     salary:Number(salary.value),
     notes:notes.value,
-    warningsCount:0,
+    warnings:0,
     status:"active",
     createdAt:serverTimestamp()
   });
 
-  log("create", name.value);
+  toast("Employee added");
 };
 
-// WARN / FIRE / EDIT
-window.warnEmployee = async function(id, w) {
-  await updateDoc(doc(db,"employees",id), {
-    warningsCount: w + 1
-  });
-  log("warn", id);
-};
-
-window.fireEmployee = async function(id) {
-  await updateDoc(doc(db,"employees",id), {
+window.fire = async (id) => {
+  await updateDoc(doc(db,"employees",id),{
     status:"fired"
   });
-  log("fire", id);
+  toast("Fired");
 };
 
-window.editSalary = async function(id) {
-  const val = prompt("New salary:");
-  if(!val) return;
-
-  await updateDoc(doc(db,"employees",id), {
-    salary:Number(val)
-  });
-
-  log("salary", id);
-};
-
-// LISTENERS
-function startListeners() {
-
-  onSnapshot(query(collection(db,"employees")), (snap) => {
-    employees = snap.docs.map(d => ({id:d.id,...d.data()}));
-    render();
-  });
-
-  onSnapshot(query(collection(db,"employee_history"), orderBy("timestamp","desc")), (snap) => {
-    logs.innerHTML = "";
-    snap.forEach(d => {
-      const x = d.data();
-      logs.innerHTML += `
-        <div class="panel small">
-          ${x.action} — ${x.details} — ${x.by || "system"}
-        </div>
-      `;
-    });
-  });
-}
-
-// RENDER UI
-window.render = function () {
+window.render = () => {
   const s = search.value?.toLowerCase() || "";
   employeesDiv.innerHTML = "";
 
@@ -302,21 +235,13 @@ window.render = function () {
       e.name.toLowerCase().includes(s) ||
       e.email.toLowerCase().includes(s)
     )
-    .forEach(e => {
-
+    .forEach(e=>{
       employeesDiv.innerHTML += `
         <div class="panel">
           <b>${e.name}</b> (${e.status})<br/>
           ${e.email}<br/>
-          ${e.phone}<br/>
-          £${e.salary}<br/>
-          Warnings: ${e.warningsCount}<br/><br/>
-
-          <div class="row">
-            <button onclick="warnEmployee('${e.id}',${e.warningsCount})">Warn</button>
-            <button onclick="editSalary('${e.id}')">Salary</button>
-            <button class="danger" onclick="fireEmployee('${e.id}')">Fire</button>
-          </div>
+          £${e.salary}<br/><br/>
+          <button class="danger" onclick="fire('${e.id}')">Fire</button>
         </div>
       `;
     });
