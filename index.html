@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Xander EMS v2.2</title>
+<title>Xander EMS v2.3</title>
 
 <style>
 :root{
@@ -12,6 +12,7 @@
   --accent:#3b82f6;
   --danger:#ef4444;
   --text:#e5e7eb;
+  --warn:#f59e0b;
 }
 
 body{
@@ -40,11 +41,11 @@ header{
 input,textarea{
   width:100%;
   padding:10px;
+  margin-top:6px;
   border-radius:8px;
   border:1px solid #334155;
   background:#0f172a;
   color:white;
-  margin-top:6px;
 }
 
 button{
@@ -60,16 +61,22 @@ button.danger{background:var(--danger);}
 
 .hidden{display:none;}
 
-.row{display:flex;gap:10px;flex-wrap:wrap;}
-
 #toast{
   position:fixed;
-  bottom:20px;
+  bottom:15px;
   left:50%;
   transform:translateX(-50%);
   background:#1e293b;
-  padding:10px 16px;
+  padding:10px 14px;
   border-radius:8px;
+  display:none;
+}
+
+#errorBox{
+  background:#1f2937;
+  border-left:4px solid var(--danger);
+  padding:10px;
+  margin-bottom:10px;
   display:none;
 }
 </style>
@@ -78,21 +85,24 @@ button.danger{background:var(--danger);}
 <body>
 
 <header>
-  <b>Xander EMS v2.2</b>
+  <b>Xander EMS v2.3</b>
   <button id="logoutBtn">Logout</button>
 </header>
 
 <div class="container">
 
+  <!-- ERROR BOX -->
+  <div id="errorBox"></div>
+
   <!-- LOGIN -->
   <div id="loginBox" class="panel">
-    <h2>Admin Login</h2>
+    <h3>Admin Login</h3>
     <input id="email" placeholder="Email"/>
     <input id="password" type="password" placeholder="Password"/>
     <button onclick="login()">Login</button>
   </div>
 
-  <!-- DASHBOARD -->
+  <!-- APP -->
   <div id="app" class="hidden">
 
     <div class="panel">
@@ -103,7 +113,6 @@ button.danger{background:var(--danger);}
       <input id="address" placeholder="Address"/>
       <input id="salary" placeholder="Salary"/>
       <textarea id="notes" placeholder="Notes"></textarea>
-
       <button onclick="addEmployee()">Add</button>
     </div>
 
@@ -157,94 +166,141 @@ const db = getFirestore(app);
 const ADMIN_UID = "REPLACE_WITH_YOUR_UID";
 
 let employees = [];
+let listenerActive = false;
 
-const loginBox = document.getElementById("loginBox");
-const appBox = document.getElementById("app");
+/* ---------------- UI HELPERS ---------------- */
 
-const toast = (msg) => {
+function toast(msg){
   const t = document.getElementById("toast");
   t.innerText = msg;
   t.style.display = "block";
   setTimeout(()=>t.style.display="none",2000);
+}
+
+function showError(msg){
+  const box = document.getElementById("errorBox");
+  box.style.display = "block";
+  box.innerText = "ERROR: " + msg;
+}
+
+/* ---------------- GLOBAL ERROR CATCH ---------------- */
+
+window.onerror = function(msg){
+  showError(msg);
 };
+
+window.addEventListener("unhandledrejection", (e)=>{
+  showError(e.reason?.message || e.reason);
+});
+
+/* ---------------- AUTH ---------------- */
 
 window.login = async () => {
   try {
-    await signInWithEmailAndPassword(
-      auth,
-      email.value,
-      password.value
-    );
+    await signInWithEmailAndPassword(auth, email.value, password.value);
   } catch (e) {
-    toast("Login failed");
+    showError(e.message);
   }
 };
 
-document.getElementById("logoutBtn").onclick = () => signOut(auth);
+document.getElementById("logoutBtn").onclick = () => {
+  signOut(auth).catch(e => showError(e.message));
+};
 
-// AUTH STATE (FIXED + CLEAN)
+/* ---------------- FIREBASE STATE ---------------- */
+
 onAuthStateChanged(auth, (user) => {
-  if (user && user.uid === ADMIN_UID) {
-    loginBox.classList.add("hidden");
-    appBox.classList.remove("hidden");
-    toast("Logged in");
-    listen();
-  } else {
-    appBox.classList.add("hidden");
-    loginBox.classList.remove("hidden");
+  try {
+    if (user && user.uid === ADMIN_UID) {
+      loginBox.classList.add("hidden");
+      app.classList.remove("hidden");
+      toast("Logged in");
+
+      if (!listenerActive) {
+        listenEmployees();
+        listenerActive = true;
+      }
+    } else {
+      loginBox.classList.remove("hidden");
+      app.classList.add("hidden");
+    }
+  } catch (e) {
+    showError(e.message);
   }
 });
 
-// FIRESTORE
-function listen(){
-  onSnapshot(query(collection(db,"employees")), snap=>{
-    employees = snap.docs.map(d=>({id:d.id,...d.data()}));
-    render();
-  });
+/* ---------------- FIRESTORE ---------------- */
+
+function listenEmployees(){
+  try {
+    onSnapshot(query(collection(db,"employees")), snap=>{
+      employees = snap.docs.map(d=>({id:d.id,...d.data()}));
+      render();
+    }, err => showError(err.message));
+  } catch (e) {
+    showError(e.message);
+  }
 }
 
-window.addEmployee = async () => {
-  await addDoc(collection(db,"employees"),{
-    name:name.value,
-    email:empEmail.value,
-    phone:phone.value,
-    address:address.value,
-    salary:Number(salary.value),
-    notes:notes.value,
-    warnings:0,
-    status:"active",
-    createdAt:serverTimestamp()
-  });
+/* ---------------- ACTIONS ---------------- */
 
-  toast("Employee added");
+window.addEmployee = async () => {
+  try {
+    await addDoc(collection(db,"employees"),{
+      name:name.value,
+      email:empEmail.value,
+      phone:phone.value,
+      address:address.value,
+      salary:Number(salary.value || 0),
+      notes:notes.value,
+      warnings:0,
+      status:"active",
+      createdAt:serverTimestamp()
+    });
+
+    toast("Employee added");
+  } catch (e) {
+    showError(e.message);
+  }
 };
 
 window.fire = async (id) => {
-  await updateDoc(doc(db,"employees",id),{
-    status:"fired"
-  });
-  toast("Fired");
+  try {
+    await updateDoc(doc(db,"employees",id),{
+      status:"fired"
+    });
+    toast("Employee fired");
+  } catch (e) {
+    showError(e.message);
+  }
 };
 
-window.render = () => {
-  const s = search.value?.toLowerCase() || "";
-  employeesDiv.innerHTML = "";
+/* ---------------- RENDER ---------------- */
 
-  employees
-    .filter(e =>
-      e.name.toLowerCase().includes(s) ||
-      e.email.toLowerCase().includes(s)
-    )
-    .forEach(e=>{
-      employeesDiv.innerHTML += `
-        <div class="panel">
-          <b>${e.name}</b> (${e.status})<br/>
-          ${e.email}<br/>
-          £${e.salary}<br/><br/>
-          <button class="danger" onclick="fire('${e.id}')">Fire</button>
-        </div>
-      `;
-    });
+window.render = () => {
+  try {
+    const s = search.value?.toLowerCase() || "";
+    employeesDiv.innerHTML = "";
+
+    employees
+      .filter(e =>
+        e.name?.toLowerCase().includes(s) ||
+        e.email?.toLowerCase().includes(s)
+      )
+      .forEach(e=>{
+        employeesDiv.innerHTML += `
+          <div class="panel">
+            <b>${e.name}</b> (${e.status})<br/>
+            ${e.email}<br/>
+            £${e.salary}<br/><br/>
+            <button class="danger" onclick="fire('${e.id}')">Fire</button>
+          </div>
+        `;
+      });
+
+  } catch (e) {
+    showError(e.message);
+  }
 };
 </script>
 
