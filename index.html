@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Xander EMS v2.3</title>
+<title>Xander EMS v2.4</title>
 
 <style>
 :root{
@@ -12,7 +12,6 @@
   --accent:#3b82f6;
   --danger:#ef4444;
   --text:#e5e7eb;
-  --warn:#f59e0b;
 }
 
 body{
@@ -29,7 +28,11 @@ header{
   background:var(--panel);
 }
 
-.container{max-width:1100px;margin:auto;padding:16px;}
+.container{
+  max-width:1100px;
+  margin:auto;
+  padding:16px;
+}
 
 .panel{
   background:var(--panel);
@@ -71,28 +74,17 @@ button.danger{background:var(--danger);}
   border-radius:8px;
   display:none;
 }
-
-#errorBox{
-  background:#1f2937;
-  border-left:4px solid var(--danger);
-  padding:10px;
-  margin-bottom:10px;
-  display:none;
-}
 </style>
 </head>
 
 <body>
 
 <header>
-  <b>Xander EMS v2.3</b>
+  <b>Xander EMS v2.4</b>
   <button id="logoutBtn">Logout</button>
 </header>
 
 <div class="container">
-
-  <!-- ERROR BOX -->
-  <div id="errorBox"></div>
 
   <!-- LOGIN -->
   <div id="loginBox" class="panel">
@@ -103,7 +95,7 @@ button.danger{background:var(--danger);}
   </div>
 
   <!-- APP -->
-  <div id="app" class="hidden">
+  <div id="appBox" class="hidden">
 
     <div class="panel">
       <h3>Create Employee</h3>
@@ -113,7 +105,8 @@ button.danger{background:var(--danger);}
       <input id="address" placeholder="Address"/>
       <input id="salary" placeholder="Salary"/>
       <textarea id="notes" placeholder="Notes"></textarea>
-      <button onclick="addEmployee()">Add</button>
+
+      <button onclick="addEmployee()">Add Employee</button>
     </div>
 
     <div class="panel">
@@ -131,6 +124,9 @@ button.danger{background:var(--danger);}
 <div id="toast"></div>
 
 <script type="module">
+
+/* ---------------- FIREBASE INIT (FIXED NAME) ---------------- */
+
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import {
   getAuth,
@@ -159,73 +155,78 @@ const firebaseConfig = {
   appId: "1:316883609389:web:3126c72e78135ee8b5d5a4"
 };
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+/* IMPORTANT FIX: renamed */
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const db = getFirestore(firebaseApp);
+
+/* ---------------- SAFE DOM REFERENCES ---------------- */
+
+const loginBox = document.getElementById("loginBox");
+const appBox = document.getElementById("appBox");
+const toastBox = document.getElementById("toast");
+const logoutBtn = document.getElementById("logoutBtn");
+
+/* ---------------- STATE ---------------- */
 
 const ADMIN_UID = "REPLACE_WITH_YOUR_UID";
-
 let employees = [];
-let listenerActive = false;
 
-/* ---------------- UI HELPERS ---------------- */
+/* ---------------- ERROR SAFE SYSTEM ---------------- */
 
 function toast(msg){
-  const t = document.getElementById("toast");
-  t.innerText = msg;
-  t.style.display = "block";
-  setTimeout(()=>t.style.display="none",2000);
+  if(!toastBox) return;
+  toastBox.innerText = msg;
+  toastBox.style.display = "block";
+  setTimeout(()=>toastBox.style.display="none",2000);
 }
 
-function showError(msg){
-  const box = document.getElementById("errorBox");
-  box.style.display = "block";
-  box.innerText = "ERROR: " + msg;
-}
-
-/* ---------------- GLOBAL ERROR CATCH ---------------- */
-
-window.onerror = function(msg){
-  showError(msg);
+window.onerror = (msg) => {
+  toast("Error: " + msg);
 };
 
 window.addEventListener("unhandledrejection", (e)=>{
-  showError(e.reason?.message || e.reason);
+  toast("Error: " + (e.reason?.message || e.reason));
 });
 
 /* ---------------- AUTH ---------------- */
 
 window.login = async () => {
   try {
-    await signInWithEmailAndPassword(auth, email.value, password.value);
+    await signInWithEmailAndPassword(
+      auth,
+      email.value,
+      password.value
+    );
   } catch (e) {
-    showError(e.message);
+    toast(e.message);
   }
 };
 
-document.getElementById("logoutBtn").onclick = () => {
-  signOut(auth).catch(e => showError(e.message));
+logoutBtn.onclick = () => {
+  signOut(auth).catch(e => toast(e.message));
 };
 
-/* ---------------- FIREBASE STATE ---------------- */
+/* ---------------- AUTH STATE ---------------- */
 
 onAuthStateChanged(auth, (user) => {
   try {
     if (user && user.uid === ADMIN_UID) {
-      loginBox.classList.add("hidden");
-      app.classList.remove("hidden");
-      toast("Logged in");
 
-      if (!listenerActive) {
-        listenEmployees();
-        listenerActive = true;
-      }
+      if (loginBox) loginBox.classList.add("hidden");
+      if (appBox) appBox.classList.remove("hidden");
+
+      toast("Logged in");
+      listenEmployees();
+
     } else {
-      loginBox.classList.remove("hidden");
-      app.classList.add("hidden");
+
+      if (loginBox) loginBox.classList.remove("hidden");
+      if (appBox) appBox.classList.add("hidden");
+
     }
   } catch (e) {
-    showError(e.message);
+    toast(e.message);
   }
 });
 
@@ -233,12 +234,12 @@ onAuthStateChanged(auth, (user) => {
 
 function listenEmployees(){
   try {
-    onSnapshot(query(collection(db,"employees")), snap=>{
+    onSnapshot(query(collection(db,"employees")), (snap)=>{
       employees = snap.docs.map(d=>({id:d.id,...d.data()}));
       render();
-    }, err => showError(err.message));
+    }, err => toast(err.message));
   } catch (e) {
-    showError(e.message);
+    toast(e.message);
   }
 }
 
@@ -259,8 +260,9 @@ window.addEmployee = async () => {
     });
 
     toast("Employee added");
+
   } catch (e) {
-    showError(e.message);
+    toast(e.message);
   }
 };
 
@@ -269,9 +271,11 @@ window.fire = async (id) => {
     await updateDoc(doc(db,"employees",id),{
       status:"fired"
     });
+
     toast("Employee fired");
+
   } catch (e) {
-    showError(e.message);
+    toast(e.message);
   }
 };
 
@@ -284,8 +288,8 @@ window.render = () => {
 
     employees
       .filter(e =>
-        e.name?.toLowerCase().includes(s) ||
-        e.email?.toLowerCase().includes(s)
+        (e.name || "").toLowerCase().includes(s) ||
+        (e.email || "").toLowerCase().includes(s)
       )
       .forEach(e=>{
         employeesDiv.innerHTML += `
@@ -299,9 +303,10 @@ window.render = () => {
       });
 
   } catch (e) {
-    showError(e.message);
+    toast(e.message);
   }
 };
+
 </script>
 
 </body>
